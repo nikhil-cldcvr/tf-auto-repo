@@ -4,11 +4,11 @@ pipeline {
     }
 
     parameters {
-        string(name: 'INPUTS', defaultValue: 'jenkins-project:main:2000-01-01,first_prj:main', description: 'Comma-separated list of project inputs in the format PROJECT_KEYS:BRANCH:DATE (DATE is optional)')
+        string(name: 'INPUTS', defaultValue: 'jenkins-project:main,first_prj:main', description: 'Comma-separated list of project inputs in the format PROJECT_KEYS:BRANCH:DATE (DATE is optional)')
     }
 
     environment {
-        SONAR_URL = "http://34.100.191.178:9000"  // Update to your SonarQube URL
+        SONAR_URL = "http://34.100.152.207:9000"  // Update to your SonarQube URL
         API_TOKEN = "squ_9aa34b2df5bb53ea7a6775655f430bf3c0810bb1"  // Replace with your actual API token stored in Jenkins
     }
 
@@ -97,7 +97,7 @@ pipeline {
                                     def foundMatch = false
                                     issuesMap.each { key, count ->
                                         // Check if the current key contains the relevant parts of the issueKey
-                                        if (key.contains("${branch},${category},${severity},${component},")) {
+                                        if (key == issueKey) {
                                             issuesMap[key] += 1
                                             echo "Duplicate found: ${issuesMap[key]} occurrences"
                                             foundMatch = true
