@@ -109,7 +109,7 @@ pipeline {
                                 // Append issue details to CSV report
                                 filenameRuleCounts.each { filename, ruleCounts ->
                                     ruleCounts.each { ruleKey, count ->
-                                        csvReport.append("${date ?: 'N/A'},${projectKey},${branch},${category},${severity},${filename},${allRules[ruleKey]},${count}\n")
+                                        csvReport.append("${date ?: 'N/A'},${projectKey},${branch},${category},${severity},${filename},${allRules[ruleKey]}.replaceAll(',', ' '),${count}\n")
                                     }
                                 }
                             }
