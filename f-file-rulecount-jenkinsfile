@@ -79,7 +79,7 @@ pipeline {
                                     if (fileExists("issues_${projectKey}_${category}_${severity}_${issuePage}.json")) {
                                         def issuesJson = readJSON file: "issues_${projectKey}_${category}_${severity}_${issuePage}.json"
                                         totalIssues += issuesJson.issues.size()
-                                        issuesLastPage = issuesJson.paging.total <= totalIssues
+                                        isLastPage = totalIssues >= 10000 || issuesJson.paging.total <= totalIssues
                                         issuePage++
 
                                         // Collect issues from this page
