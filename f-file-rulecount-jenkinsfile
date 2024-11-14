@@ -61,10 +61,10 @@ pipeline {
                             issueTypes.each { severity ->
                                 def issuePage = 1
                                 def totalIssues = 0
-                                def issuesLastPage = false
+                                def isLastPage = false
                                 def allIssues = []  // List to collect all issues across pages
 
-                                while (!issuesLastPage) {
+                                while (!isLastPage) {
                                     // Construct the issues URL with current category and severity
                                     def issuesUrl = "${env.SONAR_URL}/api/issues/search?componentKeys=${projectKey}&branch=${branch}&statuses=OPEN&types=${category}&severities=${severity.toUpperCase()}&ps=500&p=${issuePage}"
 
