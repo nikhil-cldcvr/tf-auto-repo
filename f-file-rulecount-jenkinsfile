@@ -61,10 +61,10 @@ pipeline {
                             issueTypes.each { severity ->
                                 def issuePage = 1
                                 def totalIssues = 0
-                                def isLastPage = false
+                                def issueLastPage = false
                                 def allIssues = []  // List to collect all issues across pages
 
-                                while (!isLastPage) {
+                                while (!issueLastPage) {
                                     // Construct the issues URL with current category and severity
                                     def issuesUrl = "${env.SONAR_URL}/api/issues/search?componentKeys=${projectKey}&branch=${branch}&statuses=OPEN&types=${category}&severities=${severity.toUpperCase()}&ps=500&p=${issuePage}"
 
@@ -79,7 +79,7 @@ pipeline {
                                     if (fileExists("issues_${projectKey}_${category}_${severity}_${issuePage}.json")) {
                                         def issuesJson = readJSON file: "issues_${projectKey}_${category}_${severity}_${issuePage}.json"
                                         totalIssues += issuesJson.issues.size()
-                                        isLastPage = totalIssues >= 10000 || issuesJson.paging.total <= totalIssues
+                                        issueLastPage = totalIssues >= 10000 || issuesJson.paging.total <= totalIssues
                                         issuePage++
 
                                         // Collect issues from this page
