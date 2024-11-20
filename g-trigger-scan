@@ -16,23 +16,29 @@ pipeline {
         }
         stage('Build') {
             steps {
-                // Build the project
-                sh 'mvn clean install'
+                // Build the project using a bat script block
+                bat(script: """
+                    echo Starting Maven Build...
+                    mvn clean install
+                """)
             }
         }
         stage('SonarQube Analysis') {
             steps {
                 withSonarQubeEnv('SonarQube') { // 'SonarQube' is the name configured in Jenkins
-                    // Run SonarQube scan
-                    sh 'mvn sonar:sonar -Dsonar.projectKey=your_project_key'
+                    // Run SonarQube scan using a bat script block
+                    bat(script: """
+                        echo Running SonarQube Analysis...
+                        mvn sonar:sonar -Dsonar.projectKey=your_project_key
+                    """)
                 }
             }
         }
     }
     post {
         always {
-            // Optional: Archive reports or notify
-            archiveArtifacts artifacts: '**/target/*.jar', allowEmptyArchive: true
+            // Optional: Archive build artifacts
+            archiveArtifacts artifacts: '**\\target\\*.jar', allowEmptyArchive: true
         }
         failure {
             // Handle failure, e.g., send notifications
