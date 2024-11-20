@@ -28,9 +28,12 @@ pipeline {
                 withSonarQubeEnv('SonarQube') { // 'SonarQube' is the name configured in Jenkins
                     // Run SonarQube scan using a bat script block
                     bat(script: """
-                        echo Running SonarQube Analysis...
-                        mvn sonar:sonar -Dsonar.projectKey=your_project_key
+                        mvn sonar:sonar ^
+                        -Dsonar.projectKey=your_project_key ^
+                        -Dsonar.host.url=http://your-sonarqube-server.com ^
+                        -Dsonar.login=your_generated_token
                     """)
+
                 }
             }
         }
