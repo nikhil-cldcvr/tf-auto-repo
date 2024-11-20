@@ -11,7 +11,7 @@ pipeline {
         stage('Checkout Code') {
             steps {
                 // Checkout code from the version control system (e.g., Git)
-                git branch: 'main', url: 'https://github.com/your-repo.git'
+                git branch: 'main', url: 'https://github.com/your-repo.git', credentialsId: 'your-credentials-id'
             }
         }
         stage('Build') {
