@@ -19,7 +19,7 @@ jobs:
       # Step 2: Validate the latest commit message
       - name: Validate the latest commit message
         env:
-          COMMIT_REGEX: '^\[JIRA-\d+\] \| (dev|uat|prod|test) \| .+'
+          COMMIT_REGEX: '^\[JIRA-[0-9]+\] \| (dev|uat|prod|test) \| .+'
         run: |
           echo "Validating the latest commit message..."
           
@@ -32,7 +32,7 @@ jobs:
           echo "Latest commit message: $LATEST_COMMIT_MESSAGE"
           
           # Validate the latest commit message against the regex
-          if ! [[ "$LATEST_COMMIT_MESSAGE" =~ $COMMIT_REGEX ]]; then
+          if [[ ! "$LATEST_COMMIT_MESSAGE" =~ $COMMIT_REGEX ]]; then
               echo "::error::Invalid commit message format: $LATEST_COMMIT_MESSAGE"
               exit 1
           fi
