@@ -38,7 +38,7 @@ jobs:
           echo "Latest commit SHA: $LATEST_COMMIT_SHA"
 
           # Fetch the latest commit message
-          LATEST_COMMIT_MESSAGE=$(git log -1 --pretty=%B $LATEST_COMMIT_SHA)
+          LATEST_COMMIT_MESSAGE=$(git log -1 --pretty=%B $LATEST_COMMIT_SHA | tr -d '\n'  )
           echo "Latest commit message: $LATEST_COMMIT_MESSAGE"
 
           # Validate the latest commit message against the regex
