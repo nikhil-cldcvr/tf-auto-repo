@@ -4,35 +4,57 @@ on:
   pull_request:
     branches:
       - main
+
 jobs:
   lint-commit-messages:
     runs-on: ubuntu-latest
+
     steps:
+      # Step 1: Checkout the repository
       - name: Checkout code
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 # Ensure full commit history is fetched
 
+      # Step 2: Install GitHub CLI
+      - name: Install GitHub CLI
+        run: sudo apt-get install -y gh
+
+      # Step 3: Authenticate GitHub CLI
+      - name: Authenticate GitHub CLI
+        run: gh auth setup-git
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Step 4: Validate commit messages
       - name: Validate commit messages
         env:
           COMMIT_REGEX: '^\[JIRA-\d+\] \| (dev|uat|prod|test) \| .+'
-          GH_TOKEN: ${{ vars.GH_TOKEN }}
         run: |
           echo "Validating commit messages in the pull request..."
           INVALID_COMMITS=0
-          # Fetch all commits in the pull request
+
+          # Fetch all commits in the pull request using GitHub CLI
           PR_COMMITS=$(gh pr view ${{ github.event.pull_request.number }} --json commits --jq '.commits[].oid')
-          
+
+          # Fetch missing commits from the remote repository
+          echo "Fetching missing commits..."
+          git fetch origin ${{ github.event.pull_request.head.ref }}
+
+          # Validate each commit message
           for commit in $PR_COMMITS; do
               COMMIT_MESSAGE=$(git log -1 --pretty=%B $commit)
               echo "Checking commit: $commit"
               echo "Message: $COMMIT_MESSAGE"
-              
-              # Validate commit message against the regex
+
+              # Validate the commit message against the regex
               if ! [[ "$COMMIT_MESSAGE" =~ $COMMIT_REGEX ]]; then
                   echo "::error::Invalid commit message format for commit $commit: $COMMIT_MESSAGE"
                   INVALID_COMMITS=$((INVALID_COMMITS + 1))
               fi
           done
 
+          # Fail if any invalid commit messages are found
           if [[ $INVALID_COMMITS -gt 0 ]]; then
               echo "::error::One or more commit messages do not follow the required format."
               exit 1
