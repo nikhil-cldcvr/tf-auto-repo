@@ -10,24 +10,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Step 1: Checkout the repository
+      # Step 1: Checkout the repository (fetch full commit history)
       - name: Checkout code
         uses: actions/checkout@v3
         with:
-          fetch-depth: 1 # Only fetch the latest commit
+          fetch-depth: 0 # Fetch all commit history
 
-      # Step 2: Install GitHub CLI
-      - name: Install GitHub CLI
-        run: sudo apt-get install -y gh
-
-      # Step 3: Authenticate GitHub CLI
-      - name: Authenticate GitHub CLI
-        run: gh auth setup-git
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # Step 4: Validate the latest commit message
-      - name: Validate latest commit message
+      # Step 2: Validate the latest commit message
+      - name: Validate the latest commit message
         env:
           COMMIT_REGEX: '^\[JIRA-\d+\] \| (dev|uat|prod|test) \| .+'
         run: |
@@ -36,15 +26,15 @@ jobs:
           # Get the latest commit SHA
           LATEST_COMMIT_SHA=${{ github.event.pull_request.head.sha }}
           echo "Latest commit SHA: $LATEST_COMMIT_SHA"
-
+          
           # Fetch the latest commit message
-          LATEST_COMMIT_MESSAGE=$(git log -1 --pretty=%B $LATEST_COMMIT_SHA | tr -d '\n'  )
+          LATEST_COMMIT_MESSAGE=$(git log -1 --pretty=%B $LATEST_COMMIT_SHA | tr -d '\n')
           echo "Latest commit message: $LATEST_COMMIT_MESSAGE"
-
+          
           # Validate the latest commit message against the regex
           if ! [[ "$LATEST_COMMIT_MESSAGE" =~ $COMMIT_REGEX ]]; then
               echo "::error::Invalid commit message format: $LATEST_COMMIT_MESSAGE"
               exit 1
           fi
-
+          
           echo "Commit message is valid."
