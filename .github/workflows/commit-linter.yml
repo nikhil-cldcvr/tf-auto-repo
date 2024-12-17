@@ -30,6 +30,7 @@ jobs:
       - name: Validate commit messages
         env:
           COMMIT_REGEX: '^\[JIRA-\d+\] \| (dev|uat|prod|test) \| .+'
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "Validating commit messages in the pull request..."
           INVALID_COMMITS=0
