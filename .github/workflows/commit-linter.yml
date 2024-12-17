@@ -1,7 +1,7 @@
 name: Commit Message Linter
 
 on:
-  push:
+  pull_request:
     branches:
       - main
 
