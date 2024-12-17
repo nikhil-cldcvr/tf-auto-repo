@@ -34,6 +34,8 @@ jobs:
           # Validate the latest commit message against the regex
           if [[ ! "$LATEST_COMMIT_MESSAGE" =~ $COMMIT_REGEX ]]; then
               echo "::error::Invalid commit message format: $LATEST_COMMIT_MESSAGE"
+              echo "::error::Correct format should be: [JIRA-<TicketNumber>] | <env> | <commit message>"
+              echo "::error::Example: [JIRA-1234] | dev | Added new feature"
               exit 1
           fi
           
