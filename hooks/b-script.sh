@@ -32,7 +32,7 @@ JIRA_ID=$(echo "$COMMIT_MSG" | grep -oE "[A-Z]+-[0-9]+")
 # Validate the JIRA ID by querying the JIRA API
 # -----------------------------
 jiraStatus=$(curl -s -k -H "Authorization: Bearer ${JIRA_TOKEN}" -H "${JIRA_HEADER}" \
-    -X GET "https://${JIRA_SERVER}/rest/api/2/issue/${JIRA_ID}")
+    -X GET "https://${JIRA_SERVER}/rest/api/2/issue/${JIRA_ID}?issueType=status")
 
 # Check if the JIRA ID is valid
 validity=$(echo "$jiraStatus" | jq -r '.key')
