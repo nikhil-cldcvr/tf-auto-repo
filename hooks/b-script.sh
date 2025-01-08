@@ -9,7 +9,8 @@ JIRA_HEADER="Content-Type: application/json"
 VALID_STATUSES=("In Progress" "Development")
 
 # Regex pattern for the commit message
-PATTERN="^\[[A-Z]+-[0-9]+\] \| (dev|staging|prod) \| .+$"
+PATTERN="^\[[a-zA-Z]+-[0-9]+\] \| (dev|staging|prod) \| .+$"
+
 
 # -----------------------------
 # Read the commit message
