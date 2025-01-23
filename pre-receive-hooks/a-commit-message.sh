@@ -14,7 +14,14 @@
 #
 
 set -e
-
+error_msg="Your push was rejected because the commit 
+            $commit in ${refname#refs/heads/}
+            is missing a valid commit message
+            The commit message must match the format
+            '[JIRA-<issue number>] | <dev|uat|prod|test> | <message>
+            Please fix the commit message and push again.
+            https://help.github.com/en/articles/changing-a-commit-message"
+            
 zero_commit='0000000000000000000000000000000000000000'
 msg_regex='^\[JIRA-[0-9]+\] \| (dev|uat|prod|test) \| .+'
 
@@ -28,16 +35,7 @@ while read -r oldrev newrev refname; do
 
     for commit in $(git rev-list "$range" --not --all); do
         if ! git log --max-count=1 --format=%B $commit | grep -iqE "$msg_regex"; then
-            echo "ERROR:"
-            echo "ERROR: Your push was rejected because the commit"
-            echo "ERROR: $commit in ${refname#refs/heads/}"
-            echo "ERROR: is missing a valid commit message."
-            echo "ERROR: The commit message must match the format:"
-            echo "ERROR: '[JIRA-<issue number>] | <dev|uat|prod|test> | <message>'."
-            echo "ERROR:"
-            echo "ERROR: Please fix the commit message and push again."
-            echo "ERROR: https://help.github.com/en/articles/changing-a-commit-message"
-            echo "ERROR"
+            echo "$error_msg"
             exit 1
         fi
     done
