@@ -5,8 +5,9 @@ pipeline {
     stages {
         stage('Test') {
             steps {
-                dir('selenium')
+                dir('selenium'){
                 bat "mvn -D clean test"
+                }
             }
 
             post {                
