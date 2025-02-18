@@ -1,0 +1,28 @@
+pipeline {
+    agent {
+        label 'win'
+    }
+    stages {
+        stage('Test') {
+            steps {
+                bat "mvn clean test -f pom.xml"
+            }
+
+            post {                
+                success {
+                    // Publish HTML report from Surefire Reports
+                    publishHTML([
+                        allowMissing: false, 
+                        alwaysLinkToLastBuild: false, 
+                        keepAll: false, 
+                        reportDir: 'target/surefire-reports/',
+                        reportFiles: 'emailable-report.html', 
+                        reportName: 'HTML Report', 
+                        reportTitles: '', 
+                        useWrapperFileDirectly: true
+                    ])
+                }
+            }
+        }
+    }
+}
