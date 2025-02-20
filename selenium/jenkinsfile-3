@@ -34,3 +34,11 @@ pipeline {
         }
     }
 }
+
+
+        stage('Generate HTML Report') {
+            steps {
+                // Create a simple HTML file
+                bat 'echo ^<html^>^<body^>^<h1^>Test Report^</h1^>^<p^>Build Successful!^</p^>^</body^>^</html^> > target\\surefire-reports\\emailable-report.html'
+            }
+        }
