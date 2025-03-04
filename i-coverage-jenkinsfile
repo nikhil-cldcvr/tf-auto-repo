@@ -1,3 +1,2 @@
 curl -u your_token: \
-  "http://your-sonarqube-instance/api/measures/component_tree?component=your_project_key&metricKeys=coverage&qualifiers=DIR"
-strategy=children
+  "http://your-sonarqube-instance/api/measures/component_tree?component=your_project_key&metricKeys=coverage&qualifiers=DIR&strategy=children"
