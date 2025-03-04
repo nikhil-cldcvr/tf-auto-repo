@@ -1,2 +1,60 @@
-curl -u your_token: \
-  "http://your-sonarqube-instance/api/measures/component_tree?component=your_project_key&metricKeys=coverage&qualifiers=DIR&strategy=children"
+pipeline {
+    agent {
+        label 'win'  // Adjust to your Jenkins agent label
+    }
+
+    parameters {
+        string(name: 'PROJECTS', defaultValue: 'project1,project2', description: 'Comma-separated list of SonarQube project names')
+    }
+
+    environment {
+        SONAR_URL = "http://34.100.152.207:9000"  // Update to your SonarQube URL
+        API_TOKEN = credentials('SONARQUBE_API_TOKEN')  // Use a secure Jenkins credential
+    }
+
+    stages {
+        stage('Fetch Coverage Report') {
+            steps {
+                script {
+                    def projects = params.PROJECTS.split(',')
+                    def csvReport = new StringBuilder()
+                    csvReport.append(projects.join(',') + "\n")
+                    
+                    def coverageData = [:]
+                    
+                    projects.each { project ->
+                        def coverageUrl = "${env.SONAR_URL}/api/measures/component_tree?component=${project.trim()}&metricKeys=coverage&qualifiers=DIR&strategy=children"
+                        
+                        bat(script: """
+                            curl -s -u ${env.API_TOKEN}: "${coverageUrl}" -o coverage_${project}.json
+                        """)
+
+                        if (fileExists("coverage_${project}.json")) {
+                            def jsonResponse = readJSON file: "coverage_${project}.json"
+                            
+                            jsonResponse.component.components.each { dir ->
+                                def dirName = dir.path ?: dir.name
+                                def coverage = dir.measures.find { it.metric == 'coverage' }?.value ?: 'N/A'
+                                
+                                if (!coverageData.containsKey(dirName)) {
+                                    coverageData[dirName] = []
+                                }
+                                coverageData[dirName] << "${coverage}%"
+                            }
+                        } else {
+                            error "Failed to fetch coverage data for project ${project}"
+                        }
+                    }
+                    
+                    // Format CSV output
+                    coverageData.each { dirName, coverageList ->
+                        csvReport.append("${dirName}," + coverageList.join(',') + "\n")
+                    }
+                    
+                    writeFile file: 'SonarQube_Coverage_Report.csv', text: csvReport.toString()
+                    archiveArtifacts artifacts: 'SonarQube_Coverage_Report.csv'
+                }
+            }
+        }
+    }
+}
