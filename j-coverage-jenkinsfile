@@ -19,37 +19,31 @@ pipeline {
                     def projects = params.PROJECTS.split(',').collect { it.trim() }
                     def csvReport = new StringBuilder()
 
+                    // Add CSV Header
+                    csvReport.append("Project Name,DIR,Coverage(%)\n")
+
                     projects.each { project ->
+                        csvReport.append("${project},,\n") // Project name row
+
                         def coverageUrl = "${env.SONAR_URL}/api/measures/component_tree?component=${project}&metricKeys=coverage&qualifiers=DIR&strategy=children"
 
                         bat(script: """
-                            curl -s -u "${env.API_TOKEN}:" "${coverageUrl}" -o coverage_${project}.json || exit 1
+                            curl -s -u "${env.API_TOKEN}:" "${coverageUrl}" -o coverage_${project}.json
                         """)
 
-                        if (fileExists("coverage_${project}.json")) {
+                        if (fileExists("coverage_${project}.json") && readFile("coverage_${project}.json").trim()) {
                             def jsonResponse = readJSON file: "coverage_${project}.json"
-                            def coverageData = [:]
 
-                            if (jsonResponse?.component?.components) {
+                            // Since there is no "component", directly access "components"
+                            if (jsonResponse?.components) {
                                 jsonResponse.components.each { dir ->
-                                    def dirName = dir.path ?: dir.name ?: "Unknown"
-                                    def coverage = dir.measures?.find { it.metric == 'coverage' }?.value ?: 'N/A'
-                                    coverageData[dirName] = "${coverage}%"
+                                    def dirName = dir.path ?: dir.name
+                                    def coverage = dir.measures.find { it.metric == 'coverage' }?.value ?: 'N/A'
+                                    csvReport.append(",${dirName},${coverage}%\n")
                                 }
                             } else {
-                                echo "No coverage data found for project ${project}"
+                                echo "No coverage data found for ${project}"
                             }
-
-                            // Write project name
-                            csvReport.append("${project}\n")
-
-                            // Write directory names
-                            def dirNames = coverageData.keySet().toList()
-                            csvReport.append(dirNames.join(',') + "\n")
-
-                            // Write coverage values
-                            def coverageValues = dirNames.collect { coverageData[it] ?: 'N/A' }
-                            csvReport.append(coverageValues.join(',') + "\n\n")
                         } else {
                             error "Failed to fetch coverage data for project ${project}"
                         }
