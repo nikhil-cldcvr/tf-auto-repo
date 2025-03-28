@@ -1,53 +1,108 @@
 pipeline {
     agent {
-        label 'win'
+        label 'win'  // Adjust to your Jenkins agent label
     }
 
     parameters {
-        string(name: 'JOB_NAME', defaultValue: 'Dev/job/date test', description: 'Name of the Jenkins job')
-        string(name: 'JENKINS_URL', defaultValue: 'http://34.47.151.236:8080', description: 'Jenkins server URL')
-        string(name: 'CREDENTIALS_ID', defaultValue: 'nikhil', description: 'Jenkins credentials ID')
+        string(name: 'PROJECTS', defaultValue: 'project1:main,dev,feature1;project2:master,dev2;project3:default,dev3,hotfix', 
+               description: 'Semicolon-separated list of projects with branches (format: project:branch1,branch2,...)')
     }
 
     environment {
-        CREDENTIALS_PASSWORD = "11ac03c7511f18fe582113677047edacb4" // Set the credentials password
+        SONAR_URL = "http://34.100.152.207:9000"
+        API_TOKEN = credentials('SONARQUBE_API_TOKEN')
     }
 
     stages {
-        stage('Fetch Last Successful Build Timestamp') {
+        stage('Fetch Coverage Report') {
             steps {
                 script {
-                    // Construct the URL based on parameters
-                    def jobName = params.JOB_NAME
-                    def jenkinsUrl = params.JENKINS_URL
-                    def credentialsId = params.CREDENTIALS_ID
+                    def projects = params.PROJECTS.split(';').collect { it.trim() }
+                    def csvReport = new StringBuilder()
 
-                    // Perform encoding to ensure the correct URL
-                    def encodedJobName = URLEncoder.encode(jobName, "UTF-8")
-                    encodedJobName = encodedJobName.replace('%2F', '/').replace('+', '%20')                    
+                    // Dynamic header
+                    def maxBranches = projects.collect { it.split(':')[1].split(',').size() }.max()
+                    csvReport.append("Project Name")
 
-                    // For Windows BAT, replace '%' with '%%' to escape it
-                    def url = "${jenkinsUrl}/job/${encodedJobName}/lastSuccessfulBuild/api/json?tree=timestamp".replace('%', '%%')
-                    echo "Constructed URL: ${url}"
+                    (1..maxBranches).each { i ->
+                        csvReport.append(",Branch,DIR,Coverage(%),Average(%)")
+                    }
+                    csvReport.append("\n")
 
-                    // Execute the curl command and store the result
-                    def response = bat(script: """
-                        curl -u "${credentialsId}:${env.CREDENTIALS_PASSWORD}" -s "${url}"
-                    """, returnStdout: true).trim()
+                    projects.each { projectEntry ->
+                        def parts = projectEntry.split(':')
+                        def project = parts[0].trim()
+                        def branches = parts[1].split(',').collect { it.trim() }  // Support multiple branches
 
-                    // Clean the response
-                    response = response.replaceFirst(/^[^\{]*/, '').trim()
+                        // Store coverage data
+                        def coverageData = [:]
+                        def allDirs = []  // Store all directories
 
-                    // Parse the JSON response
-                    def json = new groovy.json.JsonSlurper().parseText(response)
-                    def timestamp = json.timestamp
+                        branches.each { branch ->
+                            def coverageUrl = "${env.SONAR_URL}/api/measures/component_tree?component=${project}&metricKeys=coverage&qualifiers=DIR&strategy=children&branch=${branch}"
+                            def jsonFile = "coverage_${project}_${branch}.json"
 
-                    // Convert and format the date
-                    def date = new Date(timestamp)
-                    def formattedDate = date.format('yyyy-MM-dd')
+                            bat(script: """
+                                curl -s -u "${env.API_TOKEN}:" "${coverageUrl}" -o ${jsonFile}
+                            """)
 
-                    // Print the formatted date
-                    echo "Formatted date: ${formattedDate}"
+                            def coverageValues = []
+                            coverageData[branch] = [:]
+
+                            if (fileExists(jsonFile) && readFile(jsonFile).trim()) {
+                                def jsonResponse = readJSON file: jsonFile
+
+                                if (jsonResponse?.components) {
+                                    jsonResponse.components.each { dir ->
+                                        def dirName = dir.path ?: dir.name ?: 'N/A'
+                                        def coverage = (dir.measures ?: []).find { it.metric == 'coverage' }?.value ?: 'N/A'
+
+                                        if (coverage != 'N/A') {
+                                            coverageValues << coverage.toDouble()
+                                        }
+
+                                        coverageData[branch][dirName] = coverage
+                                        if (!allDirs.contains(dirName)) {
+                                            allDirs << dirName
+                                        }
+                                    }
+
+                                    // Calculate average for the branch
+                                    if (coverageValues.size() > 0) {
+                                        def avgCoverage = coverageValues.sum() / coverageValues.size()
+                                        coverageData[branch]["AVG"] = String.format('%.2f', avgCoverage) + "%"
+                                    }
+                                } else {
+                                    echo "No coverage data found for ${project} on branch ${branch}"
+                                }
+                            } else {
+                                catchError(buildResult: 'UNSTABLE') {
+                                    echo "Failed to fetch coverage data for ${project} on branch ${branch}"
+                                }
+                            }
+                        }
+
+                        // Add project row (first column only)
+                        csvReport.append("${project}")
+                        branches.each { csvReport.append(",,,,,") }
+                        csvReport.append("\n")
+
+                        // Add directory rows for all branches
+                        allDirs.each { dirName ->
+                            csvReport.append(",")
+
+                            branches.eachWithIndex { branch, idx ->
+                                def cov = coverageData[branch]?.get(dirName) ?: ""
+                                def avg = idx == 0 ? (coverageData[branch]?.get("AVG") ?: "") : "" // Only first branch row has average
+
+                                csvReport.append("${branch},${dirName},${cov},${avg},")
+                            }
+                            csvReport.append("\n")
+                        }
+                    }
+
+                    writeFile file: 'SonarQube_Coverage_Report.csv', text: csvReport.toString()
+                    archiveArtifacts artifacts: 'SonarQube_Coverage_Report.csv'
                 }
             }
         }
