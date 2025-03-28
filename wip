@@ -25,29 +25,22 @@ pipeline {
                         def project = parts[0].trim()
                         def branch = parts.length > 1 ? parts[1].trim() : 'default'
 
-                        def encodedProject = java.net.URLEncoder.encode(project, "UTF-8")
-                        def encodedBranch = java.net.URLEncoder.encode(branch, "UTF-8")
+                        // Add project header row
+                        csvReport.append("${project},${branch},,,\n")
 
-                        def coverageUrl = "${env.SONAR_URL}/api/measures/component_tree?component=${encodedProject}&metricKeys=coverage&qualifiers=DIR&strategy=children&branch=${encodedBranch}"
+                        def coverageUrl = "${env.SONAR_URL}/api/measures/component_tree?component=${project}&metricKeys=coverage&qualifiers=DIR&strategy=children&branch=${branch}"
 
-                        def jsonFile = "coverage_${project}.json"
-                        powershell(script: """
-                            try {
-                                Invoke-WebRequest -Uri '${coverageUrl}' -Headers @{ Authorization = 'Basic ' + [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes('${env.API_TOKEN}:')) } -OutFile ${jsonFile}
-                            } catch {
-                                Write-Host 'Failed to fetch coverage data for ${project} on branch ${branch}'
-                                exit 1
-                            }
+                        bat(script: """
+                            curl -s -u "${env.API_TOKEN}:" "${coverageUrl}" -o coverage_${project}.json
                         """)
 
+                        def jsonFile = "coverage_${project}.json"
                         def coverageValues = []
+
                         if (fileExists(jsonFile) && readFile(jsonFile).trim()) {
                             def jsonResponse = readJSON file: jsonFile
 
                             if (jsonResponse?.components) {
-                                // Add project header row
-                                csvReport.append("${project},${branch},,,\n")
-
                                 jsonResponse.components.each { dir ->
                                     def dirName = dir.path ?: dir.name ?: 'N/A'
                                     def coverage = (dir.measures ?: []).find { it.metric == 'coverage' }?.value ?: 'N/A'
