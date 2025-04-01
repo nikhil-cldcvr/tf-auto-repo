@@ -4,12 +4,12 @@ pipeline {
     }
 
     parameters {
-        string(name: 'PROJECTS', defaultValue: 'project1:main,project2:master', description: 'Comma-separated list of SonarQube projects with branches (format: project:branch)')
+        string(name: 'PROJECTS', defaultValue: 'demo2:main,demo3:main', description: 'Comma-separated list of SonarQube projects with branches (format: project:branch)')
     }
 
     environment {
-        SONAR_URL = "http://34.100.152.207:9000"  // Update to your SonarQube URL
-        API_TOKEN = credentials('SONARQUBE_API_TOKEN')  // Secure Jenkins credential
+        SONAR_URL = "http://35.200.240.180:9000"  // Update to your SonarQube URL
+        API_TOKEN = 'squ_9aa34b2df5bb53ea7a6775655f430bf3c0810bb1'  // Secure Jenkins credential
     }
 
     stages {
@@ -18,7 +18,7 @@ pipeline {
                 script {
                     def projects = params.PROJECTS.split(',').collect { it.trim() }
                     def csvReport = new StringBuilder()
-                    csvReport.append("Project Name,Branch,DIR,Coverage(%),Average(%)\n")
+                    csvReport.append("Project Name,Branch,DIR,Coverage(%),Average(%)\n".toString())
 
                     projects.each { projectEntry ->
                         def parts = projectEntry.split(':')
@@ -26,13 +26,21 @@ pipeline {
                         def branch = parts.length > 1 ? parts[1].trim() : 'default'
 
                         // Add project header row
-                        csvReport.append("${project},${branch},,,\n")
+                        csvReport.append("${project},${branch},,,\n".toString())
 
-                        def coverageUrl = "${env.SONAR_URL}/api/measures/component_tree?component=${project}&metricKeys=coverage&qualifiers=DIR&strategy=children&branch=${branch}"
+                        def encodedProject = URLEncoder.encode(project, 'UTF-8')
+                        def encodedBranch = URLEncoder.encode(branch, 'UTF-8')
+                        def coverageUrl = "${env.SONAR_URL}/api/measures/component_tree?component=${encodedProject}&metricKeys=coverage&qualifiers=DIR&strategy=children&branch=${encodedBranch}"
 
-                        bat(script: """
-                            curl -s -u "${env.API_TOKEN}:" "${coverageUrl}" -o coverage_${project}.json
-                        """)
+                        def curlResult = bat(script: """
+                            curl -s -f -u "${env.API_TOKEN}:" "${coverageUrl}" -o coverage_${project}.json
+                        """, returnStatus: true)
+
+                        if (curlResult != 0) {
+                            catchError(buildResult: 'UNSTABLE') {
+                                echo "Error fetching coverage for ${project} on branch ${branch}"
+                            }
+                        }
 
                         def jsonFile = "coverage_${project}.json"
                         def coverageValues = []
@@ -43,20 +51,20 @@ pipeline {
                             if (jsonResponse?.components) {
                                 jsonResponse.components.each { dir ->
                                     def dirName = dir.path ?: dir.name ?: 'N/A'
-                                    def coverage = (dir.measures ?: []).find { it.metric == 'coverage' }?.value ?: 'N/A'
+                                    def coverageValue = (dir.measures ?: []).find { it.metric == 'coverage' }?.value
 
-                                    if (coverage != 'N/A') {
-                                        coverageValues << coverage.toDouble()
+                                    if (coverageValue) {
+                                        coverageValues << coverageValue.toDouble()
+                                        csvReport.append(",,${dirName},${coverageValue}%,\n".toString())
+                                    } else {
+                                        csvReport.append(",,${dirName},N/A,\n".toString())
                                     }
-
-                                    // Append directory row, leaving "Average(%)" empty for now
-                                    csvReport.append(",${branch},${dirName},${coverage}%,\n")
                                 }
 
-                                // Calculate and insert average coverage in the first directory row
+                                // Calculate and insert average coverage
                                 if (coverageValues.size() > 0) {
                                     def avgCoverage = coverageValues.sum() / coverageValues.size()
-                                    csvReport = csvReport.toString().replaceFirst(",${branch},", ",${branch},,${String.format('%.2f', avgCoverage)}%\n,${branch},")
+                                    csvReport.append(",,,,${String.format('%.2f', avgCoverage)}%\n".toString())
                                 }
                             } else {
                                 echo "No coverage data found for ${project} on branch ${branch}"
