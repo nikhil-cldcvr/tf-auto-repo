@@ -1,83 +1,89 @@
 pipeline {
     agent {
-        label 'win'  // Adjust to your Jenkins agent label
+        label 'win'
     }
 
     parameters {
-        string(name: 'PROJECTS', defaultValue: 'demo2:main,demo3:main', description: 'Comma-separated list of SonarQube projects with branches (format: project:branch)')
+        string(name: 'PROJECTS', defaultValue: 'demo2:main,main;demo3:main,main', description: 'Projects with multiple branches (format: project:branch1,branch2;project2:branch1,branch2)')
     }
 
     environment {
-        SONAR_URL = "http://35.200.240.180:9000"  // Update to your SonarQube URL
-        API_TOKEN = 'squ_9aa34b2df5bb53ea7a6775655f430bf3c0810bb1'  // Secure Jenkins credential
+        SONAR_URL = "http://35.200.240.180:9000"
+        API_TOKEN = 'squ_9aa34b2df5bb53ea7a6775655f430bf3c0810bb1'
     }
 
     stages {
         stage('Fetch Coverage Report') {
             steps {
                 script {
-                    def projects = params.PROJECTS.split(',').collect { it.trim() }
+                    def projects = params.PROJECTS.split(';').collect { it.trim() }
                     def csvReport = new StringBuilder()
                     csvReport.append("Project Name,Branch,DIR,Coverage(%),Average(%)\n".toString())
 
                     projects.each { projectEntry ->
-                        def parts = projectEntry.split(':')
-                        def project = parts[0].trim()
-                        def branch = parts.length > 1 ? parts[1].trim() : 'default'
+                        def projectParts = projectEntry.split(':')
+                        def project = projectParts[0].trim()
+                        def branches = projectParts.length > 1 ? projectParts[1].split(',').collect { it.trim() } : ['default']
 
-                        // Add project header row
-                        csvReport.append("${project},${branch},,,\n".toString())
+                        branches.each { branch ->
+                            csvReport.append("${project},${branch},,,\n".toString())
 
-                        def encodedProject = URLEncoder.encode(project, 'UTF-8')
-                        def encodedBranch = URLEncoder.encode(branch, 'UTF-8')
-                        def coverageUrl = "${env.SONAR_URL}/api/measures/component_tree?component=${encodedProject}&metricKeys=coverage&qualifiers=DIR&strategy=children&branch=${encodedBranch}"
+                            def encodedProject = URLEncoder.encode(project, 'UTF-8')
+                            def encodedBranch = URLEncoder.encode(branch, 'UTF-8')
+                            def coverageUrl = "${env.SONAR_URL}/api/measures/component_tree?component=${encodedProject}&metricKeys=coverage&qualifiers=DIR&strategy=children&branch=${encodedBranch}"
 
-                        def curlResult = bat(script: """
-                            curl -s -f -u "${env.API_TOKEN}:" "${coverageUrl}" -o coverage_${project}.json
-                        """, returnStatus: true)
+                            def curlResult = bat(script: """
+                                curl -s -f -u "${env.API_TOKEN}:" "${coverageUrl}" -o coverage_${project}_${branch}.json
+                            """, returnStatus: true)
 
-                        if (curlResult != 0) {
-                            catchError(buildResult: 'UNSTABLE') {
-                                echo "Error fetching coverage for ${project} on branch ${branch}"
-                            }
-                        }
-
-                        def jsonFile = "coverage_${project}.json"
-                        def coverageValues = []
-
-                        if (fileExists(jsonFile) && readFile(jsonFile).trim()) {
-                            def jsonResponse = readJSON file: jsonFile
-
-                            if (jsonResponse?.components) {
-                                jsonResponse.components.each { dir ->
-                                    def dirName = dir.path ?: dir.name ?: 'N/A'
-                                    def coverageValue = (dir.measures ?: []).find { it.metric == 'coverage' }?.value
-
-                                    if (coverageValue) {
-                                        coverageValues << coverageValue.toDouble()
-                                        csvReport.append(",,${dirName},${coverageValue}%,\n".toString())
-                                    } else {
-                                        csvReport.append(",,${dirName},N/A,\n".toString())
-                                    }
+                            if (curlResult != 0) {
+                                catchError(buildResult: 'UNSTABLE') {
+                                    echo "Error fetching coverage for ${project} on branch ${branch}"
                                 }
+                            }
 
-                                // Calculate and insert average coverage
-                                if (coverageValues.size() > 0) {
-                                    def avgCoverage = coverageValues.sum() / coverageValues.size()
-                                    csvReport.append(",,,,${String.format('%.2f', avgCoverage)}%\n".toString())
+                            def jsonFile = "coverage_${project}_${branch}.json"
+                            def coverageValues = []
+
+                            if (fileExists(jsonFile) && readFile(jsonFile).trim()) {
+                                def jsonResponse = readJSON file: jsonFile
+
+                                if (jsonResponse?.components) {
+                                    jsonResponse.components.each { dir ->
+                                        def dirName = dir.path ?: dir.name ?: 'N/A'
+                                        def coverageValue = (dir.measures ?: []).find { it.metric == 'coverage' }?.value
+
+                                        if (coverageValue) {
+                                            coverageValues << coverageValue.toDouble()
+                                            csvReport.append(",,${dirName},${coverageValue}%,\n".toString())
+                                        } else {
+                                            csvReport.append(",,${dirName},N/A,\n".toString())
+                                        }
+                                    }
+
+                                    if (coverageValues.size() > 0) {
+                                        def avgCoverage = coverageValues.sum() / coverageValues.size()
+                                        csvReport.append(",,,,${String.format('%.2f', avgCoverage)}%\n".toString())
+                                    }
+                                } else {
+                                    echo "No coverage data found for ${project} on branch ${branch}"
                                 }
                             } else {
-                                echo "No coverage data found for ${project} on branch ${branch}"
-                            }
-                        } else {
-                            catchError(buildResult: 'UNSTABLE') {
-                                echo "Failed to fetch coverage data for ${project} on branch ${branch}"
+                                catchError(buildResult: 'UNSTABLE') {
+                                    echo "Failed to fetch coverage data for ${project} on branch ${branch}"
+                                }
                             }
                         }
                     }
 
                     writeFile file: 'SonarQube_Coverage_Report.csv', text: csvReport.toString()
-                    archiveArtifacts artifacts: 'SonarQube_Coverage_Report.csv'
+
+                    // Convert CSV to XLSX using Python
+                    bat(script: """
+                        python convert_csv_to_xlsx.py
+                    """, returnStatus: true)
+
+                    archiveArtifacts artifacts: 'SonarQube_Coverage_Report.xlsx'
                 }
             }
         }
