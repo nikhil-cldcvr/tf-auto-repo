@@ -52,6 +52,11 @@ pipeline {
                                 if (jsonResponse?.components) {
                                     jsonResponse.components.each { dir ->
                                         def dirName = dir.path ?: dir.name ?: 'N/A'
+
+                                        if (dirName.contains("/")) {
+                                            echo "Skipping recursive directory: ${dirName}"
+                                        return
+                                        }
                                         def coverageValue = (dir.measures ?: []).find { it.metric == 'coverage' }?.value
 
                                         if (coverageValue) {
