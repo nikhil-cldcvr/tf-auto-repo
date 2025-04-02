@@ -8,7 +8,7 @@ pipeline {
     }
 
     environment {
-        SONAR_URL = "http://34.47.194.124:9000"  // Update to your SonarQube URL
+        SONAR_URL = "http://34.93.27.191:9000"  // Update to your SonarQube URL
         API_TOKEN = "squ_9aa34b2df5bb53ea7a6775655f430bf3c0810bb1"  // Replace with your actual API token stored in Jenkins
     }
 
@@ -41,7 +41,7 @@ pipeline {
                     branchGroups.each { branch, projects ->
                         // Add section header for each branch
                         csvReport.append("${branch} Report,,,,,,,,,,,,,,,,,,,\n")
-                        csvReport.append(",,,,Code Smells,,,,Vulnerabilities,,,,Bugs,,,,,,Total Count,\n")
+                        csvReport.append(",Categories,,,Code Smells,,,,Vulnerabilities,,,,Bugs,,,,,,Total Count,\n")
                         csvReport.append(",From,Project Name,Branch,Major,Critical,Minor,Blocker,Major,Critical,Minor,Blocker,Major,Critical,Minor,Blocker,,Code Smells,Vulnerabilities,Bugs\n")
 
                         projects.each { project ->
