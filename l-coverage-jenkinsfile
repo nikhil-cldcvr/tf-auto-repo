@@ -30,7 +30,7 @@ pipeline {
                             csvReport.append("${project},${branch},,,\n".toString())
 
                             def encodedProject = URLEncoder.encode(project, 'UTF-8')
-                            def encodedBranch = URLEncoder.encode(branch, 'UTF-8')
+                            def encodedBranch = URLEncoder.encode(URLEncoder.encode(branch, 'UTF-8'), 'UTF-8')
                             def coverageUrl = "${env.SONAR_URL}/api/measures/component_tree?component=${encodedProject}&metricKeys=coverage&qualifiers=DIR&strategy=children&branch=${encodedBranch}"
 
                             def curlResult = bat(script: """
@@ -55,7 +55,7 @@ pipeline {
 
                                         if (dirName.contains("/")) {
                                             echo "Skipping recursive directory: ${dirName}"
-                                        return
+                                            return
                                         }
                                         def coverageValue = (dir.measures ?: []).find { it.metric == 'coverage' }?.value
 
