@@ -1,0 +1,155 @@
+pipeline {
+    agent {
+        label 'win'  // Adjust to your Jenkins agent label
+    }
+
+    parameters {
+        string(name: 'INPUTS', defaultValue: 'jenkins-project:main,dev,feature:2024-01-01;first_prj:main,feature,release:2024-01-01;', description: 'Semicolon-separated list of project inputs in the format PROJECT_NAME:BRANCH1,BRANCH2,...:DATE; (DATE is optional)')
+    }
+
+    environment {
+        SONAR_URL = "http://34.93.27.191:9000"  // Update to your SonarQube URL
+        API_TOKEN = "squ_9aa34b2df5bb53ea7a6775655f430bf3c0810bb1"  // Keeping this as is
+    }
+
+    stages {
+        stage('Fetch SonarQube Metrics') {
+            steps {
+                script {
+                    def projectInputs = params.INPUTS.split(';')
+                    def csvReport = new StringBuilder()
+
+                    def issueCategories = ['CODE_SMELL', 'VULNERABILITY', 'BUG']
+                    def branchGroups = [:]
+
+                    projectInputs.each { input ->
+                        if (input.trim()) {
+                            def parts = input.split(':')
+                            def projectKey = parts[0].trim()
+                            def branches = parts[1].trim().split(',')
+                            def date = parts.size() > 2 ? parts[2].trim() : null
+
+                            branches.each { branch ->
+                                if (!branchGroups.containsKey(branch)) {
+                                    branchGroups[branch] = []
+                                }
+                                branchGroups[branch] << [projectKey: projectKey, date: date]
+                            }
+                        }
+                    }
+
+                    branchGroups.each { branch, projects ->
+                        csvReport.append("${branch} Report,,,,,,,,,,,,,,,,,,,\n")
+                        csvReport.append(",Categories,,,Code Smells,,,,Vulnerabilities,,,,Bugs,,,,,,Total Count,\n")
+                        csvReport.append(",From,Project Name,Branch,Major,Critical,Minor,Blocker,Major,Critical,Minor,Blocker,Major,Critical,Minor,Blocker,,Code Smells,Vulnerabilities,Bugs\n")
+
+                        projects.each { project ->
+                            def projectKey = project.projectKey
+                            def date = project.date
+
+                            csvReport.append(",${date ?: 'N/A'},${projectKey},${branch},")
+
+                            def totalCounts = [ 'CODE_SMELL': 0, 'VULNERABILITY': 0, 'BUG': 0 ]
+
+                            issueCategories.each { category ->
+                                def issuesUrl = "${env.SONAR_URL}/api/issues/search?componentKeys=${projectKey}&branch=${branch}&types=${category}&severities=BLOCKER,CRITICAL,MAJOR,MINOR&statuses=OPEN"
+                                if (date) {
+                                    issuesUrl += "&createdAfter=${date}"
+                                }
+
+                                bat(script: """
+                                    curl -s -u ${env.API_TOKEN}: "${issuesUrl}" -o issues_${projectKey}_${branch}_${category}.json
+                                """)
+
+                                def issuesJson = fileExists("issues_${projectKey}_${branch}_${category}.json") ? readJSON(file: "issues_${projectKey}_${branch}_${category}.json") : [issues: []]
+
+                                def severityMap = ['major': 0, 'critical': 0, 'minor': 0, 'blocker': 0]
+
+                                issuesJson.issues.each { issue ->
+                                    def severity = issue.severity.toLowerCase()
+                                    if (severityMap.containsKey(severity)) {
+                                        severityMap[severity] += 1
+                                    }
+                                }
+
+                                totalCounts[category] = severityMap.values().sum()
+
+                                switch (category) {
+                                    case 'CODE_SMELL':
+                                        csvReport.append("${severityMap['major']},${severityMap['critical']},${severityMap['minor']},${severityMap['blocker']},")
+                                        break
+                                    case 'VULNERABILITY':
+                                        csvReport.append("${severityMap['major']},${severityMap['critical']},${severityMap['minor']},${severityMap['blocker']},")
+                                        break
+                                    case 'BUG':
+                                        csvReport.append("${severityMap['major']},${severityMap['critical']},${severityMap['minor']},${severityMap['blocker']},")
+                                        break
+                                }
+                            }
+
+                            csvReport.append(",${totalCounts['CODE_SMELL']},${totalCounts['VULNERABILITY']},${totalCounts['BUG']}\n")
+                        }
+
+                        csvReport.append(",,,,,,,,,,,,,,,,,,,\n")
+                    }
+
+                    writeFile file: 'SonarQube_Metrics_Report.csv', text: csvReport.toString()
+                }
+            }
+        }
+
+        stage('Format Report') {
+            steps {
+                script {
+                    writeFile file: 'format_sonarqube_report.py', text: """
+import pandas as pd
+from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Font, Border, Side, Alignment
+from openpyxl.utils import get_column_letter
+
+df = pd.read_csv("SonarQube_Metrics_Report.csv")
+
+wb = Workbook()
+ws = wb.active
+ws.title = "SonarQube Report"
+
+bold_font = Font(bold=True)
+thin_border = Border(
+    left=Side(style='thin'),
+    right=Side(style='thin'),
+    top=Side(style='thin'),
+    bottom=Side(style='thin')
+)
+
+row_index = 1
+col_count = len(df.columns)
+
+for i, row in df.iterrows():
+    if "Report" in row[0]:  # Branch Report Header
+        ws.append([row[0]])
+        ws.merge_cells(start_row=row_index, start_column=1, end_row=row_index, end_column=col_count)
+        ws[row_index][0].font = bold_font
+        ws[row_index][0].alignment = Alignment(horizontal="center", vertical="center")
+    else:
+        ws.append(row.tolist())
+
+        for col in range(1, col_count + 1):
+            ws[row_index][col - 1].border = thin_border
+            ws[row_index][col - 1].alignment = Alignment(horizontal="center", vertical="center")
+
+    row_index += 1
+
+# Adjust column width
+for col in range(1, col_count + 1):
+    ws.column_dimensions[get_column_letter(col)].width = 15
+
+wb.save("SonarQube_Metrics_Report.xlsx")
+                    """
+
+                    bat "python format_sonarqube_report.py"
+                    archiveArtifacts artifacts: 'SonarQube_Metrics_Report.xlsx'
+                }
+            }
+        }
+    }
+}

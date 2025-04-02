@@ -1,0 +1,31 @@
+pipeline {
+    agent {
+        label 'win'
+    }
+    stages {
+        stage('Test') {
+            steps {
+                dir('selenium'){
+                bat "mvn -D clean test"
+                }
+            }
+
+            post {                
+                // If Maven was able to run the tests, even if some of the test
+                // failed, record the test results and archive the jar file.
+                success {
+                publishHTML([allowMissing: false, alwaysLinkToLastBuild: false, keepAll: false, reportDir: 'selenium/target/surefire-reports/', reportFiles: 'emailable-report.html', reportName: 'HTML Report', reportTitles: '', useWrapperFileDirectly: true])
+               // allure([
+               //     includeProperties: false,
+                //    jdk: '',
+                  //  properties: [],
+                   // reportBuildPolicy: 'ALWAYS',
+                   // results: [[path: 'selenium/allure-results']]
+               // ])//
+            }
+         }
+    }
+}      
+}
+
+

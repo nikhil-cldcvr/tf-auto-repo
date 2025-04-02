@@ -1,0 +1,63 @@
+pipeline {
+    agent {
+        label 'win'  // Adjust to your Jenkins agent label
+    }
+
+    parameters {
+        string(name: 'PROJECTS', defaultValue: 'project1:main,project2:master', description: 'Comma-separated list of SonarQube projects with branches (format: project:branch)')
+    }
+
+    environment {
+        SONAR_URL = "http://34.100.152.207:9000"  // Update to your SonarQube URL
+        API_TOKEN = credentials('SONARQUBE_API_TOKEN')  // Keep using the secure Jenkins credential
+    }
+
+    stages {
+        stage('Fetch Coverage Report') {
+            steps {
+                script {
+                    def projects = params.PROJECTS.split(',').collect { it.trim() }
+                    def csvReport = new StringBuilder()
+
+                    // Add CSV Header
+                    csvReport.append("Project Name,Branch,DIR,Coverage(%)\n")
+
+                    projects.each { projectEntry ->
+                        def parts = projectEntry.split(':')
+                        def project = parts[0].trim()
+                        def branch = parts.length > 1 ? parts[1].trim() : 'default'  // Default branch if not specified
+
+                        // Add project and branch row
+                        csvReport.append("${project},${branch},,\n") 
+
+                        def coverageUrl = "${env.SONAR_URL}/api/measures/component_tree?component=${project}&metricKeys=coverage&qualifiers=DIR&strategy=children&branch=${branch}"
+
+                        bat(script: """
+                            curl -s -u "${env.API_TOKEN}:" "${coverageUrl}" -o coverage_${project}.json
+                        """)
+
+                        def jsonFile = "coverage_${project}.json"
+                        if (fileExists(jsonFile) && readFile(jsonFile).trim()) {
+                            def jsonResponse = readJSON file: jsonFile
+
+                            if (jsonResponse?.components) {
+                                jsonResponse.components.each { dir ->
+                                    def dirName = dir.path ?: dir.name ?: 'N/A'
+                                    def coverage = (dir.measures ?: []).find { it.metric == 'coverage' }?.value ?: 'N/A'
+                                    csvReport.append(",${branch},${dirName},${coverage}%\n")
+                                }
+                            } else {
+                                echo "No coverage data found for ${project} on branch ${branch}"
+                            }
+                        } else {
+                            error "Failed to fetch coverage data for ${project} on branch ${branch}"
+                        }
+                    }
+
+                    writeFile file: 'SonarQube_Coverage_Report.csv', text: csvReport.toString()
+                    archiveArtifacts artifacts: 'SonarQube_Coverage_Report.csv'
+                }
+            }
+        }
+    }
+}

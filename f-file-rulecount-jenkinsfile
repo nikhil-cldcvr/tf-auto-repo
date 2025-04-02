@@ -1,0 +1,127 @@
+pipeline {
+    agent {
+        label 'win'  // Adjust to your Jenkins agent label
+    }
+
+    parameters {
+        string(name: 'INPUTS', defaultValue: 'jenkins-project:main', description: 'Comma-separated list of project inputs in the format PROJECT_KEYS:BRANCH:DATE (DATE is optional)')
+    }
+
+    environment {
+        SONAR_URL = "http://34.47.196.182:9000"  // Update to your SonarQube URL
+        API_TOKEN = "squ_9aa34b2df5bb53ea7a6775655f430bf3c0810bb1"  // Replace with your actual API token stored in Jenkins
+    }
+
+    stages {
+        stage('Fetch Data and Generate Report') {
+            steps {
+                script {
+                    def allRules = [:]  // Store rule details (rule key to rule name mapping)
+                    def page = 1
+                    def totalRules = 0
+                    def isLastPage = false
+
+                    // Fetch all SonarQube rules using pagination
+                    while (!isLastPage) {
+                        def rulesUrl = "${env.SONAR_URL}/api/rules/search?ps=500&p=${page}"
+
+                        bat(script: """
+                            curl -s -u ${env.API_TOKEN}: "${rulesUrl}" -o rules_${page}.json
+                        """)
+
+                        if (fileExists("rules_${page}.json")) {
+                            def rulesJson = readJSON file: "rules_${page}.json"
+                            totalRules += rulesJson.rules.size()
+                            isLastPage = rulesJson.paging.total <= totalRules
+                            page++
+
+                            // Store rule key to rule name mapping
+                            rulesJson.rules.each { rule ->
+                                allRules[rule.key] = rule.name
+                            }
+                        } else {
+                            error "Failed to fetch rules from SonarQube at page ${page}"
+                        }
+                    }
+
+                    def projectInputs = params.INPUTS.split(',')
+                    def issueTypes = ['major', 'critical', 'minor', 'blocker']
+                    def issueCategories = ['CODE_SMELL', 'VULNERABILITY', 'BUG']
+                    def csvReport = new StringBuilder()
+                    csvReport.append("From,project,branch,Categories,severity,filename,rulename,count\n")
+
+                    projectInputs.each { input ->
+                        def parts = input.split(':')
+                        def projectKey = parts[0].trim()
+                        def branch = parts[1].trim()
+                        def date = parts.size() > 2 ? parts[2].trim() : null
+
+                        // Loop over each category and severity combination
+                        issueCategories.each { category ->
+                            issueTypes.each { severity ->
+                                def issuePage = 1
+                                def totalIssues = 0
+                                def issueLastPage = false
+                                def allIssues = []  // List to collect all issues across pages
+
+                                while (!issueLastPage) {
+                                    // Construct the issues URL with current category and severity
+                                    def issuesUrl = "${env.SONAR_URL}/api/issues/search?componentKeys=${projectKey}&branch=${branch}&statuses=OPEN&types=${category}&severities=${severity.toUpperCase()}&ps=500&p=${issuePage}"
+
+                                    if (date) {
+                                        issuesUrl += "&createdAfter=${date}"
+                                    }
+
+                                    bat(script: """
+                                        curl -s -u ${env.API_TOKEN}: "${issuesUrl}" -o issues_${projectKey}_${category}_${severity}_${issuePage}.json
+                                    """)
+
+                                    if (fileExists("issues_${projectKey}_${category}_${severity}_${issuePage}.json")) {
+                                        def issuesJson = readJSON file: "issues_${projectKey}_${category}_${severity}_${issuePage}.json"
+                                        totalIssues += issuesJson.issues.size()
+                                        issueLastPage = totalIssues >= 10000 || issuesJson.paging.total <= totalIssues
+                                        issuePage++
+
+                                        // Collect issues from this page
+                                        allIssues.addAll(issuesJson.issues)
+                                    } else {
+                                        error "Failed to fetch issues from SonarQube for ${projectKey} on page ${issuePage}"
+                                    }
+                                }
+
+                                // Process combined issues to count unique rules per filename
+                                def filenameRuleCounts = [:]  // Map to store unique rule counts per filename
+
+                                allIssues.each { issue ->
+                                    def filename = issue.component
+                                    def ruleKey = issue.rule
+
+                                    // Initialize if filename does not exist in the map
+                                    if (!filenameRuleCounts.containsKey(filename)) {
+                                        filenameRuleCounts[filename] = [:]
+                                    }
+
+                                    // Increment the rule count for this filename and rule
+                                    def ruleCounts = filenameRuleCounts[filename]
+                                    ruleCounts[ruleKey] = (ruleCounts.get(ruleKey) ?: 0) + 1
+                                }
+
+                                // Append issue details to CSV report
+                                filenameRuleCounts.each { filename, ruleCounts ->
+                                    ruleCounts.each { ruleKey, count ->
+                                        def ruleName = allRules[ruleKey].replaceAll(',', ' ')
+                                        csvReport.append("${date ?: 'N/A'},${projectKey},${branch},${category},${severity},${filename},${ruleName},${count}\n")
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Write CSV report for all projects
+                    writeFile file: "SonarQube_Metrics_Report.csv", text: csvReport.toString()
+                    archiveArtifacts artifacts: 'SonarQube_Metrics_Report.csv'
+                }
+            }
+        }
+    }
+}
