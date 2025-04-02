@@ -55,17 +55,28 @@ pipeline {
                                 def severityMap = [ 'BLOCKER': 0, 'CRITICAL': 0, 'MAJOR': 0, 'MINOR': 0 ]
 
                                 issueSeverities.each { severity ->
-                                    def issuesUrl = "${env.SONAR_URL}/api/issues/search?componentKeys=${projectKey}&branch=${branch}&types=${category}&severities=${severity}&statuses=OPEN"
-                                    if (date) {
-                                        issuesUrl += "&createdAfter=${date}"
+                                    def page = 1
+                                    def totalIssues = 0
+                                    def isLastPage = false
+
+                                    while (!isLastPage) {
+                                        def issuesUrl = "${env.SONAR_URL}/api/issues/search?componentKeys=${projectKey}&branch=${branch}&types=${category}&severities=${severity}&statuses=OPEN&ps=500&p=${page}"
+                                        if (date) {
+                                            issuesUrl += "&createdAfter=${date}"
+                                        }
+
+                                        bat(script: """
+                                            curl -s -u ${env.API_TOKEN}: "${issuesUrl}" -o issues_${projectKey}_${branch}_${category}_${severity}_${page}.json
+                                        """)
+
+                                        def issuesJson = readJSON file: "issues_${projectKey}_${branch}_${category}_${severity}_${page}.json"
+
+                                        totalIssues += issuesJson.issues.size()
+                                        isLastPage = totalIssues >= 10000 || issuesJson.paging.total <= totalIssues
+                                        page++
+
+                                        severityMap[severity] += issuesJson.issues.size()
                                     }
-
-                                    bat(script: """
-                                        curl -s -u ${env.API_TOKEN}: "${issuesUrl}" -o issues_${projectKey}_${branch}_${category}_${severity}.json
-                                    """)
-
-                                    def issuesJson = readJSON file: "issues_${projectKey}_${branch}_${category}_${severity}.json"
-                                    severityMap[severity] += issuesJson.issues.size()
                                 }
 
                                 totalCounts[category] = severityMap.values().sum()
