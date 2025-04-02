@@ -75,7 +75,7 @@ pipeline {
                                     
                                     def issuesJson = readJSON file: "issues_${projectKey}_${branch}_${category}_${page}.json"
                                     totalIssues += issuesJson.issues.size()
-                                    isLastPage = issuesJson.issues.isEmpty() || totalIssues >= 10000 || issuesJson.paging.total <= totalIssues
+                                    isLastPage = issuesJson.issues.isEmpty() || totalIssues >= 1000000 || issuesJson.paging.total <= totalIssues
                                     page++
 
                                     issuesJson.issues.each { issue ->
