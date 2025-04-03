@@ -1,6 +1,6 @@
 import pandas as pd
 from openpyxl import load_workbook
-from openpyxl.styles import Font, PatternFill, Alignment
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
 # ==============================
@@ -47,6 +47,14 @@ header_alignment = Alignment(horizontal="center", vertical="center")
 # Column width settings
 child_header_width = 15  # Set uniform width for child headers
 
+# Border settings
+thin_border = Border(
+    left=Side(style="thin"),
+    right=Side(style="thin"),
+    top=Side(style="thin"),
+    bottom=Side(style="thin")
+)
+
 # ==============================
 # 🔹 PROCESS CSV DATA
 # ==============================
@@ -81,17 +89,27 @@ for cell in ws[1]:
     cell.fill = parent_fill
     cell.font = header_font
     cell.alignment = header_alignment
+    cell.border = thin_border  # Apply border
 
 # Apply styles only to Child Headers (Row 2)
 for cell in ws[2]:
     cell.fill = child_fill
     cell.font = header_font
     cell.alignment = header_alignment
+    cell.border = thin_border  # Apply border
 
 # Merge cells for parent headers
 for merge_range, title in merge_ranges.items():
     ws.merge_cells(merge_range)
     ws[merge_range.split(":")[0]].value = title
+
+# ==============================
+# 🔹 APPLY BORDERS TO DATA CELLS
+# ==============================
+
+for row in ws.iter_rows(min_row=3, max_row=ws.max_row, min_col=1, max_col=ws.max_column):
+    for cell in row:
+        cell.border = thin_border  # Apply border
 
 # ==============================
 # 🔹 ADJUST COLUMN WIDTH
