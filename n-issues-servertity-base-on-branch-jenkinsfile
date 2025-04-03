@@ -8,7 +8,7 @@ pipeline {
     }
 
     environment {
-        SONAR_URL = "http://34.93.27.191:9000"  // Update to your SonarQube URL
+        SONAR_URL = "http://34.100.204.180:9000"  // Update to your SonarQube URL
         API_TOKEN = "squ_9aa34b2df5bb53ea7a6775655f430bf3c0810bb1"  // Replace with your actual API token stored in Jenkins
     }
 
@@ -20,6 +20,7 @@ pipeline {
                     def csvReport = new StringBuilder()
 
                     def issueCategories = ['CODE_SMELL', 'VULNERABILITY', 'BUG']
+                    def issueSeverities = ['BLOCKER', 'CRITICAL', 'MAJOR', 'MINOR']
                     def branchGroups = [:]
 
                     projectInputs.each { input ->
@@ -39,7 +40,6 @@ pipeline {
                     }
 
                     branchGroups.each { branch, projects ->
-                        // Add section header for each branch
                         csvReport.append("${branch} Report,,,,,,,,,,,,,,,,,,,\n")
                         csvReport.append(",Categories,,,Code Smells,,,,Vulnerabilities,,,,Bugs,,,,,,Total Count,\n")
                         csvReport.append(",From,Project Name,Branch,Major,Critical,Minor,Blocker,Major,Critical,Minor,Blocker,Major,Critical,Minor,Blocker,,Code Smells,Vulnerabilities,Bugs\n")
@@ -47,66 +47,48 @@ pipeline {
                         projects.each { project ->
                             def projectKey = project.projectKey
                             def date = project.date
-
-                            // Append projectKey and branch to the CSV report
                             csvReport.append(",${date ?: 'N/A'},${projectKey},${branch},")
 
                             def totalCounts = [ 'CODE_SMELL': 0, 'VULNERABILITY': 0, 'BUG': 0 ]
 
                             issueCategories.each { category ->
-                                // Build the issues API URL, adding createdAfter only if date is provided
-                                def issuesUrl = "${env.SONAR_URL}/api/issues/search?componentKeys=${projectKey}&branch=${branch}&types=${category}&severities=BLOCKER,CRITICAL,MAJOR,MINOR&statuses=OPEN"
-                                if (date) {
-                                    issuesUrl += "&createdAfter=${date}"
-                                }
+                                def severityMap = [ 'BLOCKER': 0, 'CRITICAL': 0, 'MAJOR': 0, 'MINOR': 0 ]
 
-                                // API call to fetch all severities in one go for each category
-                                bat(script: """
-                                    curl -s -u ${env.API_TOKEN}: "${issuesUrl}" -o issues_${projectKey}_${branch}_${category}.json
-                                """)
-                                def issuesJson = readJSON file: "issues_${projectKey}_${branch}_${category}.json"
-
-                                // Initialize counts for each severity type
-                                def severityMap = [
-                                    'major': 0,
-                                    'critical': 0,
-                                    'minor': 0,
-                                    'blocker': 0
-                                ]
-
-                                // Loop through all issues and count by severity
-                                issuesJson.issues.each { issue ->
-                                    def severity = issue.severity.toLowerCase()
-                                    if (severityMap.containsKey(severity)) {
-                                        severityMap[severity] += 1
+                                issueSeverities.each { severity ->
+                                    def issuesUrl = "${env.SONAR_URL}/api/issues/search?componentKeys=${projectKey}&branch=${branch}&types=${category}&severities=${severity}&statuses=OPEN"
+                                    if (date) {
+                                        issuesUrl += "&createdAfter=${date}"
                                     }
+
+                                    bat(script: """
+                                        curl -s -u ${env.API_TOKEN}: "${issuesUrl}" -o issues_${projectKey}_${branch}_${category}_${severity}.json
+                                    """)
+
+                                    def issuesJson = readJSON file: "issues_${projectKey}_${branch}_${category}_${severity}.json"
+                                    severityMap[severity] += issuesJson.total ?: 0
                                 }
 
                                 totalCounts[category] = severityMap.values().sum()
 
-                                // Append issue counts based on category (Code Smells, Vulnerabilities, Bugs)
                                 switch (category) {
                                     case 'CODE_SMELL':
-                                        csvReport.append("${severityMap['major']},${severityMap['critical']},${severityMap['minor']},${severityMap['blocker']},")
+                                        csvReport.append("${severityMap['MAJOR']},${severityMap['CRITICAL']},${severityMap['MINOR']},${severityMap['BLOCKER']},")
                                         break
                                     case 'VULNERABILITY':
-                                        csvReport.append("${severityMap['major']},${severityMap['critical']},${severityMap['minor']},${severityMap['blocker']},")
+                                        csvReport.append("${severityMap['MAJOR']},${severityMap['CRITICAL']},${severityMap['MINOR']},${severityMap['BLOCKER']},")
                                         break
                                     case 'BUG':
-                                        csvReport.append("${severityMap['major']},${severityMap['critical']},${severityMap['minor']},${severityMap['blocker']},")
+                                        csvReport.append("${severityMap['MAJOR']},${severityMap['CRITICAL']},${severityMap['MINOR']},${severityMap['BLOCKER']},")
                                         break
                                 }
                             }
 
-                            // Append total counts
                             csvReport.append(",${totalCounts['CODE_SMELL']},${totalCounts['VULNERABILITY']},${totalCounts['BUG']}\n")
                         }
 
-                        // Add separator between branch sections
                         csvReport.append(",,,,,,,,,,,,,,,,,,,\n")
                     }
 
-                    // Write CSV report to a file
                     writeFile file: 'SonarQube_Metrics_Report.csv', text: csvReport.toString()
                     archiveArtifacts artifacts: 'SonarQube_Metrics_Report.csv'
                 }
