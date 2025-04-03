@@ -1,0 +1,227 @@
+pipeline {
+    agent {
+        label 'win'  // Adjust to your Jenkins agent label
+    }
+
+    parameters {
+        string(name: 'INPUTS', defaultValue: 'jenkins-project:main,dev,feature:2024-01-01;first_prj:main,feature,release:2024-01-01;', description: 'Semicolon-separated list of project inputs in the format PROJECT_NAME:BRANCH1,BRANCH2,...:DATE; (DATE is optional)')
+    }
+
+    environment {
+        SONAR_URL = "http://34.100.204.180:9000"  // Update to your SonarQube URL
+        API_TOKEN = "squ_9aa34b2df5bb53ea7a6775655f430bf3c0810bb1"  // Replace with your actual API token stored in Jenkins
+    }
+
+    stages {
+        stage('Fetch SonarQube Metrics') {
+            steps {
+                script {
+                    def projectInputs = params.INPUTS.split(';')
+                    def csvReport = new StringBuilder()
+
+                    def issueCategories = ['CODE_SMELL', 'VULNERABILITY', 'BUG']
+                    def issueSeverities = ['BLOCKER', 'CRITICAL', 'MAJOR', 'MINOR']
+                    def branchGroups = [:]
+
+                    projectInputs.each { input ->
+                        if (input.trim()) {
+                            def parts = input.split(':')
+                            def projectKey = parts[0].trim()
+                            def branches = parts[1].trim().split(',')
+                            def date = parts.size() > 2 ? parts[2].trim() : null
+
+                            branches.each { branch ->
+                                if (!branchGroups.containsKey(branch)) {
+                                    branchGroups[branch] = []
+                                }
+                                branchGroups[branch] << [projectKey: projectKey, date: date]
+                            }
+                        }
+                    }
+
+                    branchGroups.each { branch, projects ->
+                        projects.each { project ->
+                            def projectKey = project.projectKey
+                            def date = project.date
+                            csvReport.append("${date ?: 'N/A'},${projectKey},${branch},")
+
+                            def totalCounts = [ 'CODE_SMELL': 0, 'VULNERABILITY': 0, 'BUG': 0 ]
+
+                            issueCategories.each { category ->
+                                def severityMap = [ 'BLOCKER': 0, 'CRITICAL': 0, 'MAJOR': 0, 'MINOR': 0 ]
+
+                                issueSeverities.each { severity ->
+                                    def issuesUrl = "${env.SONAR_URL}/api/issues/search?componentKeys=${projectKey}&branch=${branch}&types=${category}&severities=${severity}&statuses=OPEN"
+                                    if (date) {
+                                        issuesUrl += "&createdAfter=${date}"
+                                    }
+
+                                    bat(script: """
+                                        curl -s -u ${env.API_TOKEN}: "${issuesUrl}" -o issues_${projectKey}_${branch}_${category}_${severity}.json
+                                    """)
+
+                                    def issuesJson = readJSON file: "issues_${projectKey}_${branch}_${category}_${severity}.json"
+                                    severityMap[severity] += issuesJson.total ?: 0
+                                }
+
+                                totalCounts[category] = severityMap.values().sum()
+
+                                switch (category) {
+                                    case 'CODE_SMELL':
+                                        csvReport.append("${severityMap['MAJOR']},${severityMap['CRITICAL']},${severityMap['MINOR']},${severityMap['BLOCKER']},")
+                                        break
+                                    case 'VULNERABILITY':
+                                        csvReport.append("${severityMap['MAJOR']},${severityMap['CRITICAL']},${severityMap['MINOR']},${severityMap['BLOCKER']},")
+                                        break
+                                    case 'BUG':
+                                        csvReport.append("${severityMap['MAJOR']},${severityMap['CRITICAL']},${severityMap['MINOR']},${severityMap['BLOCKER']},")
+                                        break
+                                }
+                            }
+
+                            csvReport.append("${totalCounts['CODE_SMELL']},${totalCounts['VULNERABILITY']},${totalCounts['BUG']}\n")
+                        }
+                    }
+
+                    writeFile file: 'SonarQube_Metrics_Report.csv', text: csvReport.toString()
+                    archiveArtifacts artifacts: 'SonarQube_Metrics_Report.csv'
+                }
+            }
+        }
+
+        stage('Generate Excel Report') {
+            steps {
+                script {
+                    writeFile file: 'generate_report.py', text: '''
+import pandas as pd
+from openpyxl import load_workbook
+from openpyxl.styles import Font, PatternFill, Alignment
+from openpyxl.worksheet.table import Table, TableStyleInfo
+
+# ==============================
+# 🔹 CONFIGURABLE VARIABLES
+# ==============================
+
+# Input & output file paths
+input_csv = "SonarQube_Metrics_Report.csv"
+output_xlsx = "SonarQube_Metrics_Report.xlsx"
+
+# Static child headers (column names)
+static_headers = [
+    "From", "Project Name", "Branch",
+    "Major", "Critical", "Minor", "Blocker",
+    "Major", "Critical", "Minor", "Blocker",
+    "Major", "Critical", "Minor", "Blocker",
+    "Code Smells", "Vulnerabilities", "Bugs"
+]
+
+# Parent headers (spanning multiple child columns)
+parent_headers = [
+    "Categories", "", "", "",
+    "Code Smells", "Code Smells", "Code Smells", "Code Smells",
+    "Vulnerabilities", "Vulnerabilities", "Vulnerabilities", "Vulnerabilities",
+    "Bugs", "Bugs", "Bugs", "Bugs",
+    "Total Count", "Total Count"
+]
+
+# Column merging ranges for parent headers
+merge_ranges = {
+    "A1:A1": "Categories",
+    "D1:G1": "Code Smells",
+    "H1:K1": "Vulnerabilities",
+    "L1:O1": "Bugs",
+    "P1:R1": "Total Count"
+}
+
+# Styling configurations
+parent_fill = PatternFill(start_color="4F81BD", end_color="4F81BD", fill_type="solid")  # Blue for parent headers
+child_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")  # Yellow for child headers
+header_font = Font(bold=True, color="000000")  # Black text for both parent and child headers
+header_alignment = Alignment(horizontal="center", vertical="center")
+
+# Column width settings
+child_header_width = 15  # Set uniform width for child headers
+
+# ==============================
+# 🔹 PROCESS CSV DATA
+# ==============================
+
+# Read CSV file while keeping "N/A" values
+df = pd.read_csv(input_csv, header=None, dtype=str)  # Preserve "N/A" values
+
+# Assign dynamic column headers based on CSV content
+df.columns = static_headers[:len(df.columns)]
+
+# Save DataFrame to Excel with proper positioning
+df.to_excel(output_xlsx, index=False, engine="openpyxl", startrow=1)  # Child headers on row 2
+
+# ==============================
+# 🔹 LOAD & FORMAT EXCEL
+# ==============================
+
+# Load workbook and select active sheet
+wb = load_workbook(output_xlsx)
+ws = wb.active
+
+# ==============================
+# 🔹 INSERT HEADERS & APPLY STYLES
+# ==============================
+
+# Insert Parent Headers (Row 1)
+for col_num, header in enumerate(parent_headers, 1):
+    ws.cell(row=1, column=col_num, value=header)
+
+# Apply styles only to Parent Headers (Row 1)
+for cell in ws[1]:
+    cell.fill = parent_fill
+    cell.font = header_font
+    cell.alignment = header_alignment
+
+# Apply styles only to Child Headers (Row 2)
+for cell in ws[2]:
+    cell.fill = child_fill
+    cell.font = header_font
+    cell.alignment = header_alignment
+
+# Merge cells for parent headers
+for merge_range, title in merge_ranges.items():
+    ws.merge_cells(merge_range)
+    ws[merge_range.split(":")[0]].value = title
+
+# ==============================
+# 🔹 ADJUST COLUMN WIDTH
+# ==============================
+
+# Set uniform width for all child header columns (Row 2)
+for cell in ws[2]:  
+    col_letter = cell.column_letter
+    ws.column_dimensions[col_letter].width = child_header_width
+
+# ==============================
+# 🔹 CREATE TABLE & SAVE FILE
+# ==============================
+
+# Define table range dynamically based on data size
+table_ref = f"A1:{ws.cell(row=ws.max_row, column=ws.max_column).coordinate}"
+
+# Create and style the table
+table = Table(displayName="DataTable", ref=table_ref)
+style = TableStyleInfo(
+    name="TableStyleMedium9", showFirstColumn=False,
+    showLastColumn=False, showRowStripes=True, showColumnStripes=False
+)
+table.tableStyleInfo = style
+ws.add_table(table)
+
+# Save the formatted Excel file
+wb.save(output_xlsx)
+
+print(f"Formatted Excel file created: {output_xlsx}")
+'''
+                    bat "python generate_report.py"
+                    archiveArtifacts artifacts: 'SonarQube_Metrics_Report.xlsx'
+                }
+            }
+        }
+    }
+}
