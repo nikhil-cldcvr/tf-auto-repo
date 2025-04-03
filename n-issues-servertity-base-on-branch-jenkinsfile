@@ -40,7 +40,7 @@ pipeline {
                     }
 
                     branchGroups.each { branch, projects ->
-                        csvReport.append("${branch} Report,,,,,,,,,,,,,,,,,,,\n")
+                        csvReport.append(",,,,,,,${branch} Report,,,,,,,,,,,\n")
                         csvReport.append(",Categories,,,Code Smells,,,,Vulnerabilities,,,,Bugs,,,,,,Total Count,\n")
                         csvReport.append(",From,Project Name,Branch,Major,Critical,Minor,Blocker,Major,Critical,Minor,Blocker,Major,Critical,Minor,Blocker,,Code Smells,Vulnerabilities,Bugs\n")
 
