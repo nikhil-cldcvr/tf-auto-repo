@@ -1,0 +1,92 @@
+pipeline {
+    agent {
+        label 'win'  // Adjust to your Jenkins agent label
+    }
+
+    parameters {
+        string(name: 'INPUTS', defaultValue: 'jenkins-project:main,dev,feature:2024-01-01;first_prj:main,feature,release:2024-01-01;', description: 'Semicolon-separated list of project inputs in the format PROJECT_NAME:BRANCH1,BRANCH2,...:DATE; (DATE is optional)')
+    }
+
+    environment {
+        SONAR_URL = "http://34.100.204.180:9000"  // Update to your SonarQube URL
+        API_TOKEN = "squ_9aa34b2df5bb53ea7a6775655f430bf3c0810bb1"  // Replace with your actual API token stored in Jenkins
+    }
+
+    stages {
+        stage('Fetch SonarQube Metrics') {
+            steps {
+                script {
+                    def projectInputs = params.INPUTS.split(';')
+                    def csvReport = new StringBuilder()
+
+                    def issueCategories = ['CODE_SMELL', 'VULNERABILITY', 'BUG']
+                    def issueSeverities = ['BLOCKER', 'CRITICAL', 'MAJOR', 'MINOR']
+                    def branchGroups = [:]
+
+                    projectInputs.each { input ->
+                        if (input.trim()) {
+                            def parts = input.split(':')
+                            def projectKey = parts[0].trim()
+                            def branches = parts[1].trim().split(',')
+                            def date = parts.size() > 2 ? parts[2].trim() : null
+
+                            branches.each { branch ->
+                                if (!branchGroups.containsKey(branch)) {
+                                    branchGroups[branch] = []
+                                }
+                                branchGroups[branch] << [projectKey: projectKey, date: date]
+                            }
+                        }
+                    }
+
+                    branchGroups.each { branch, projects ->
+                        projects.each { project ->
+                            def projectKey = project.projectKey
+                            def date = project.date
+                            csvReport.append("${date ?: 'N/A'},${projectKey},${branch},")
+
+                            def totalCounts = [ 'CODE_SMELL': 0, 'VULNERABILITY': 0, 'BUG': 0 ]
+
+                            issueCategories.each { category ->
+                                def severityMap = [ 'BLOCKER': 0, 'CRITICAL': 0, 'MAJOR': 0, 'MINOR': 0 ]
+
+                                issueSeverities.each { severity ->
+                                    def issuesUrl = "${env.SONAR_URL}/api/issues/search?componentKeys=${projectKey}&branch=${branch}&types=${category}&severities=${severity}&statuses=OPEN"
+                                    if (date) {
+                                        issuesUrl += "&createdAfter=${date}"
+                                    }
+
+                                    bat(script: """
+                                        curl -s -u ${env.API_TOKEN}: "${issuesUrl}" -o issues_${projectKey}_${branch}_${category}_${severity}.json
+                                    """)
+
+                                    def issuesJson = readJSON file: "issues_${projectKey}_${branch}_${category}_${severity}.json"
+                                    severityMap[severity] += issuesJson.total ?: 0
+                                }
+
+                                totalCounts[category] = severityMap.values().sum()
+
+                                switch (category) {
+                                    case 'CODE_SMELL':
+                                        csvReport.append("${severityMap['MAJOR']},${severityMap['CRITICAL']},${severityMap['MINOR']},${severityMap['BLOCKER']},")
+                                        break
+                                    case 'VULNERABILITY':
+                                        csvReport.append("${severityMap['MAJOR']},${severityMap['CRITICAL']},${severityMap['MINOR']},${severityMap['BLOCKER']},")
+                                        break
+                                    case 'BUG':
+                                        csvReport.append("${severityMap['MAJOR']},${severityMap['CRITICAL']},${severityMap['MINOR']},${severityMap['BLOCKER']},")
+                                        break
+                                }
+                            }
+
+                            csvReport.append("${totalCounts['CODE_SMELL']},${totalCounts['VULNERABILITY']},${totalCounts['BUG']}\n")
+                        }
+                    }
+
+                    writeFile file: 'SonarQube_Metrics_Report.csv', text: csvReport.toString()
+                    archiveArtifacts artifacts: 'SonarQube_Metrics_Report.csv'
+                }
+            }
+        }
+    }
+}
